@@ -1,0 +1,4 @@
+* { box-sizing: border-box; }
+html { background: #f6f8f4; }
+body { margin: 0; font-family: 'Manrope', sans-serif; }
+button, textarea { font-family: inherit; }
