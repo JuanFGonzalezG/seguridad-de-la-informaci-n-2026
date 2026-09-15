@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   limpiarTexto,
   detectarAlgoritmo,
@@ -20,6 +20,103 @@ const ALGORITMOS = [
   { id: 'afin', nombre: 'Afín'},
   { id: 'vigenere', nombre: 'Vigenère'},
 ]
+
+const leerRespuestaJson = async (response) => {
+  const body = await response.text()
+  try {
+    return JSON.parse(body)
+  } catch {
+    throw new Error('El servidor no esta disponible. Ejecuta npm run dev y recarga la pagina.')
+  }
+}
+
+function LoginView({ onLogin }) {
+  const [registering, setRegistering] = useState(false)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirmation, setConfirmation] = useState('')
+  const [roles, setRoles] = useState([])
+  const [roleId, setRoleId] = useState('')
+  const [error, setError] = useState('')
+  const [notice, setNotice] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    if (!registering) return
+    fetch('/api/roles')
+      .then(async (response) => {
+        if (!response.ok) throw new Error('No se pudieron cargar los roles.')
+        return leerRespuestaJson(response)
+      })
+      .then((data) => {
+        setRoles(data.roles)
+        setRoleId(String(data.roles[0]?.id || ''))
+      })
+      .catch((rolesError) => setError(rolesError.message))
+  }, [registering])
+
+  const submitLogin = async (event) => {
+    event.preventDefault()
+    setError('')
+    setNotice('')
+    if (registering && password !== confirmation) {
+      setError('Las contrasenas no coinciden.')
+      return
+    }
+    setLoading(true)
+    try {
+      const response = await fetch(registering ? '/api/register' : '/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username, password, roleId: registering ? Number(roleId) : undefined }),
+      })
+      const data = await leerRespuestaJson(response)
+      if (!response.ok) throw new Error(data.error || 'No fue posible completar la operacion.')
+      if (registering) {
+        setRegistering(false)
+        setPassword('')
+        setConfirmation('')
+        setNotice('Cuenta creada. Ahora puedes iniciar sesion.')
+      } else {
+        onLogin(data.user)
+      }
+    } catch (loginError) {
+      setError(loginError.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <main className="login-shell">
+      <form className="login-card" onSubmit={submitLogin}>
+        <h1>{registering ? 'Crear cuenta' : 'Acceso al Sistema'}</h1>
+        <label htmlFor="username">Usuario:</label>
+        <input id="username" type="text" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Ej: usuario" required autoComplete="username" />
+        <label htmlFor="password">Contrasena:</label>
+        <input id="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" />
+        {registering && (
+          <>
+            <label htmlFor="confirmation">Confirmar contrasena:</label>
+            <input id="confirmation" type="password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} required autoComplete="new-password" />
+            <label htmlFor="role">Rol:</label>
+            <select id="role" value={roleId} onChange={(event) => setRoleId(event.target.value)} required>
+              <option value="" disabled>Selecciona un rol</option>
+              {roles.map((role) => <option key={role.id} value={role.id}>{role.nombre}</option>)}
+            </select>
+          </>
+        )}
+        {notice && <p className="login-notice" role="status">{notice}</p>}
+        {error && <p className="login-error" role="alert">{error}</p>}
+        <button type="submit" className="login-submit" disabled={loading}>{loading ? 'Validando...' : registering ? 'Registrarme' : 'Iniciar Sesion'}</button>
+        <button type="button" className="login-switch" onClick={() => { setRegistering(!registering); setError(''); setNotice('') }}>
+          {registering ? 'Ya tengo una cuenta' : 'Crear una cuenta'}
+        </button>
+      </form>
+    </main>
+  )
+}
 
 function TablaFrecuencias({ texto }) {
   const frecuencias = listaFrecuencias(texto)
@@ -411,9 +508,27 @@ function DecryptMode({ algoritmo }) {
 }
 
 function App() {
+  const [usuario, setUsuario] = useState(null)
+  const [verificandoSesion, setVerificandoSesion] = useState(true)
   const [sidebarAbierta, setSidebarAbierta] = useState(true)
   const [modo, setModo] = useState('cifrar')
   const [algoritmo, setAlgoritmo] = useState('cesar')
+
+  useEffect(() => {
+    fetch('/api/me', { credentials: 'include' })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data) => setUsuario(data?.user || null))
+      .catch(() => setUsuario(null))
+      .finally(() => setVerificandoSesion(false))
+  }, [])
+
+  const cerrarSesion = async () => {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' })
+    setUsuario(null)
+  }
+
+  if (verificandoSesion) return <div className="session-loading">Verificando sesion...</div>
+  if (!usuario) return <LoginView onLogin={setUsuario} />
 
   return (
     <main className="app-shell">
@@ -427,6 +542,7 @@ function App() {
           >
             ☰
           </button>
+          <button className="logout-btn" onClick={cerrarSesion}>Cerrar sesion</button>
         </div>
 
         {sidebarAbierta && (
